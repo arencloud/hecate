@@ -1,0 +1,98 @@
+version: "3.9"
+
+services:
+  hecate:
+    image: ghcr.io/arencloud/hecate:dev
+    container_name: hecate
+    restart: unless-stopped
+    # root privileges are required for the container to run
+    #sysctls:
+    #  net.core.rmem_max: "8388608"
+    #  net.core.rmem_default: "8388608"
+    #  net.core.wmem_max: "8388608"
+    #  net.core.wmem_default: "8388608"
+    ports:
+      - "9443:8443"
+      - "9000:9000"
+      - "9444:8444/udp"
+      - "9444:8444"
+    environment:
+      - GODEBUG=http2server=1
+      - QUIC_GO_DISABLE_RECEIVE_BUFFER_WARNING=1
+    volumes:
+      - ./config:/app/config:Z
+    depends_on:
+      - upstream1
+      - upstream2
+      - otelcol
+
+  # Simple upstreams using hashicorp/http-echo for testing
+  upstream1:
+    image: hashicorp/http-echo:0.2.3
+    container_name: upstream1
+    command: ["-text=upstream1 OK"]
+    ports:
+      - "18080:5678"
+    expose:
+      - "5678"
+
+  upstream2:
+    image: hashicorp/http-echo:0.2.3
+    container_name: upstream2
+    command: ["-text=upstream2 OK"]
+    ports:
+      - "18081:5678"
+    expose:
+      - "5678"
+
+  # OpenTelemetry Collector to receive OTLP/HTTP and log what it gets
+  otelcol:
+    image: otel/opentelemetry-collector:0.97.0
+    container_name: otelcol
+    command: [ "--config=/etc/otelcol-config.yaml" ]
+    ports:
+      - "4318:4318"   # OTLP/HTTP
+      - "9464:9464"
+      # - "4317:4317" # (optional) OTLP/gRPC if you enable it in the config
+    volumes:
+      - ./config/otel-collector.yaml:/etc/otelcol-config.yaml:ro,Z
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=2d"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro,Z
+    restart: unless-stopped
+    depends_on:
+      - otelcol
+
+  tempo:
+    image: grafana/tempo:2.6.0
+    container_name: tempo
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    ports:
+      - "3200:3200"   # Tempo query API (used by Grafana)
+      - "4317:4317"   # OTLP/gRPC ingest (from collector)
+      #- "4318:4318"   # OTLP/HTTP ingest (not used here but exposed)
+    volumes:
+      - ./config/tempo.yaml:/etc/tempo.yaml:ro,Z
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_FEATURE_TOGGLES_ENABLE=tempoServiceGraph
+    depends_on:
+      - prometheus
+      - tempo
+    restart: unless-stopped

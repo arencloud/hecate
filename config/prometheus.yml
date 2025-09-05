@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  # Scrape the OpenTelemetry Collector Prometheus exporter
+  - job_name: 'otelcol'
+    static_configs:
+      - targets: ['otelcol:9464']

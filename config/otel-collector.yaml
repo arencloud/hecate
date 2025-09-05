@@ -1,0 +1,33 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        # cors: {} # optional
+
+exporters:
+  # Logs what’s received (useful for quick smoke)
+  logging:
+    loglevel: info
+  # Expose metrics for Prometheus to scrape
+  prometheus:
+    endpoint: 0.0.0.0:9464
+  # Send traces to Tempo (OTLP/gRPC)
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+processors:
+  batch: {}
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/tempo, logging]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus, logging]
